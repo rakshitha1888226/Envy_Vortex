@@ -1,22 +1,19 @@
-// Phishing Detector Service Worker
+// Phishing Detector Service Worker (FIXED & COMPLETE)
+
 class PhishingDetector {
   constructor() {
     this.threatDatabase = {
       blacklist: new Set(),
-      whitelist: new Set(),
-      suspiciousPatterns: [
-        'login',
-        'verify',
-        'secure',
-        'account',
-        'banking',
-        'update',
-        'password',
-        'credential'
-      ]
+      whitelist: new Set()
     };
+
+    // Store page-level analysis per tab
+    this.pageAnalysisCache = {}; // tabId -> { score, indicators }
+
     this.loadDatabase();
   }
+
+  /* -------------------- DATABASE -------------------- */
 
   async loadDatabase() {
     try {
@@ -24,114 +21,130 @@ class PhishingDetector {
       this.threatDatabase.blacklist = new Set(data.blacklist || []);
       this.threatDatabase.whitelist = new Set(data.whitelist || []);
       await this.updateThreatLists();
-    } catch (error) {
-      console.error('Failed to load database:', error);
+    } catch (err) {
+      console.error('Database load failed:', err);
     }
   }
 
   async updateThreatLists() {
     try {
-      // Fetch updated threat lists (you can replace with actual API calls)
       const response = await fetch('https://openphish.com/feed.txt');
       const text = await response.text();
-      const urls = text.split('\n').filter(url => url.trim());
-      
-      urls.forEach(url => {
-        this.threatDatabase.blacklist.add(this.normalizeUrl(url));
-      });
-      
+      const urls = text.split('\n').filter(Boolean);
+
+      urls.forEach(url =>
+        this.threatDatabase.blacklist.add(this.normalizeUrl(url))
+      );
+
       await chrome.storage.local.set({
-        blacklist: Array.from(this.threatDatabase.blacklist),
-        whitelist: Array.from(this.threatDatabase.whitelist)
+        blacklist: [...this.threatDatabase.blacklist],
+        whitelist: [...this.threatDatabase.whitelist]
       });
-    } catch (error) {
+    } catch {
       console.log('Using local threat database');
     }
   }
 
   normalizeUrl(url) {
-    return url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].toLowerCase();
+    return url.replace(/^(https?:\/\/)?(www\.)?/, '')
+      .split('/')[0]
+      .toLowerCase();
   }
 
-  calculateRiskScore(url, tabId) {
+  /* -------------------- URL ANALYSIS -------------------- */
+
+  calculateUrlRisk(url) {
     let score = 0;
     const findings = [];
-    
-    // Check against blacklist
-    if (this.threatDatabase.blacklist.has(this.normalizeUrl(url))) {
-      score += 100;
-      findings.push('URL found in global blacklist');
-    }
-    
-    // Check URL structure
+
+    const domain = this.normalizeUrl(url);
     const urlObj = new URL(url);
-    
-    // Check for IP address instead of domain
+
+    if (this.threatDatabase.blacklist.has(domain)) {
+      score += 100;
+      findings.push('URL found in phishing blacklist');
+    }
+
     if (/^\d+\.\d+\.\d+\.\d+$/.test(urlObj.hostname)) {
       score += 30;
-      findings.push('URL uses IP address instead of domain name');
+      findings.push('IP address used instead of domain');
     }
-    
-    // Check for too many subdomains
-    const subdomainCount = urlObj.hostname.split('.').length - 2;
-    if (subdomainCount > 3) {
+
+    const subdomains = urlObj.hostname.split('.').length - 2;
+    if (subdomains > 3) {
       score += 20;
-      findings.push('Excessive number of subdomains detected');
+      findings.push('Too many subdomains');
     }
-    
-    // Check for suspicious characters
+
     if (/(%|@|-|_)\d/.test(urlObj.hostname)) {
       score += 25;
-      findings.push('Suspicious characters in domain');
+      findings.push('Suspicious domain pattern');
     }
-    
-    // Check for brand impersonation
-    const brands = ['paypal', 'google', 'facebook', 'apple', 'microsoft', 'amazon'];
-    const hostname = urlObj.hostname.toLowerCase();
+
+    const brands = ['paypal', 'google', 'facebook', 'amazon', 'apple', 'microsoft'];
     brands.forEach(brand => {
-      if (hostname.includes(brand) && !hostname.endsWith(`.${brand}.com`)) {
+      if (urlObj.hostname.includes(brand) && !urlObj.hostname.endsWith(`${brand}.com`)) {
         score += 40;
-        findings.push(`Possible ${brand} brand impersonation detected`);
+        findings.push(`Possible ${brand} impersonation`);
       }
     });
-    
-    // Check SSL/TLS
+
     if (urlObj.protocol !== 'https:') {
       score += 50;
-      findings.push('Connection is not using HTTPS');
+      findings.push('Website is not HTTPS');
     }
-    
+
     return { score, findings };
   }
+
+  /* -------------------- COMBINED ANALYSIS -------------------- */
 
   async analyzeUrl(url, tabId) {
-    if (!url || url.startsWith('chrome://') || url.startsWith('about:')) {
-      return null;
-    }
+    if (!url || url.startsWith('chrome://') || url.startsWith('about:')) return;
 
-    const { score, findings } = this.calculateRiskScore(url, tabId);
-    
-    // Store analysis result
-    await chrome.storage.local.set({
-      [`analysis_${tabId}`]: {
-        url,
-        score,
-        findings,
-        timestamp: Date.now(),
-        riskLevel: this.getRiskLevel(score)
-      }
-    });
-    
-    // Update badge
-    await this.updateBadge(tabId, score);
-    
-    // Show notification for high risk
-    if (score > 70) {
-      await this.showWarning(tabId, score, findings);
+    const urlResult = this.calculateUrlRisk(url);
+    const pageResult = this.pageAnalysisCache[tabId] || { score: 0 };
+
+    const finalScore = Math.min(urlResult.score + pageResult.score, 100);
+
+    const result = {
+      url,
+      score: finalScore,
+      riskLevel: this.getRiskLevel(finalScore),
+      findings: [
+        ...urlResult.findings,
+        ...(pageResult.score > 0 ? ['Suspicious page content detected'] : [])
+      ],
+      timestamp: Date.now()
+    };
+
+    await chrome.storage.local.set({ [`analysis_${tabId}`]: result });
+
+    await this.updateBadge(tabId, finalScore);
+
+    if (finalScore >= 70) {
+      await this.showWarning(tabId, finalScore);
     }
-    
-    return { score, findings };
   }
+
+  /* -------------------- PAGE ANALYSIS (FROM content.js) -------------------- */
+
+  async handlePageAnalysis(message, sender) {
+    if (!sender.tab) return;
+
+    const tabId = sender.tab.id;
+
+    // Cache page-level score
+    this.pageAnalysisCache[tabId] = {
+      score: message.score,
+      indicators: message.indicators
+    };
+
+    // Re-analyze with merged score
+    await this.analyzeUrl(sender.tab.url, tabId);
+  }
+
+  /* -------------------- UI HELPERS -------------------- */
 
   getRiskLevel(score) {
     if (score >= 80) return 'CRITICAL';
@@ -142,101 +155,137 @@ class PhishingDetector {
   }
 
   async updateBadge(tabId, score) {
-    const riskLevel = this.getRiskLevel(score);
-    const badgeColors = {
-      'CRITICAL': '#FF0000',
-      'HIGH': '#FF6B00',
-      'MEDIUM': '#FFD700',
-      'LOW': '#90EE90',
-      'SAFE': '#008000'
+    const colors = {
+      CRITICAL: '#ff0000',
+      HIGH: '#ff6b00',
+      MEDIUM: '#ffd700',
+      LOW: '#90ee90',
+      SAFE: '#008000'
     };
-    
-    const text = score > 0 ? '!' : '✓';
-    const color = badgeColors[riskLevel] || '#666666';
-    
-    await chrome.action.setBadgeText({ tabId, text });
-    await chrome.action.setBadgeBackgroundColor({ tabId, color });
-    await chrome.action.setBadgeTextColor({ tabId, color: '#FFFFFF' });
+
+    const level = this.getRiskLevel(score);
+
+    await chrome.action.setBadgeText({
+      tabId,
+      text: score > 0 ? '!' : '✓'
+    });
+
+    await chrome.action.setBadgeBackgroundColor({
+      tabId,
+      color: colors[level]
+    });
   }
 
-  async showWarning(tabId, score, findings) {
+  async showWarning(tabId, score) {
     await chrome.notifications.create({
       type: 'basic',
       iconUrl: 'assets/icon48.png',
       title: '⚠️ Phishing Warning',
-      message: `High risk detected (Score: ${score})`,
-      priority: 2,
-      buttons: [
-        { title: 'View Details' },
-        { title: 'Ignore' }
-      ]
-    });
-    
-    // Store notification handler
-    chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
-      if (buttonIndex === 0) {
-        chrome.tabs.update(tabId, { active: true });
-      }
+      message: `High risk website detected (Score: ${score})`,
+      priority: 2
     });
   }
 }
 
-// Initialize detector
+/* -------------------- INIT -------------------- */
+
 const detector = new PhishingDetector();
 
-// Listen for tab updates
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+/* -------------------- EVENTS -------------------- */
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'loading' && tab.url) {
-    await detector.analyzeUrl(tab.url, tabId);
+    detector.analyzeUrl(tab.url, tabId);
   }
 });
 
-// Listen for navigation
-chrome.webNavigation.onCompleted.addListener(async (details) => {
-  if (details.url) {
-    await detector.analyzeUrl(details.url, details.tabId);
-  }
+chrome.webNavigation.onCompleted.addListener(details => {
+  detector.analyzeUrl(details.url, details.tabId);
 });
 
-// Handle messages from content script and popup
+/* -------------------- MESSAGE HANDLER -------------------- */
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case 'ANALYZE_URL':
-      detector.analyzeUrl(message.url, sender.tab.id)
-        .then(result => sendResponse(result))
-        .catch(error => sendResponse({ error: error.message }));
-      return true; // Will respond asynchronously
-      
-    case 'GET_ANALYSIS':
-      chrome.storage.local.get([`analysis_${sender.tab.id}`])
-        .then(data => sendResponse(data[`analysis_${sender.tab.id}`]))
-        .catch(error => sendResponse({ error: error.message }));
-      return true;
-      
-    case 'REPORT_PHISHING':
-      // Add to blacklist
-      detector.threatDatabase.blacklist.add(detector.normalizeUrl(message.url));
-      chrome.storage.local.set({
-        blacklist: Array.from(detector.threatDatabase.blacklist)
-      });
-      sendResponse({ success: true });
-      break;
-      
-    case 'MARK_SAFE':
-      // Add to whitelist
-      detector.threatDatabase.whitelist.add(detector.normalizeUrl(message.url));
-      chrome.storage.local.set({
-        whitelist: Array.from(detector.threatDatabase.whitelist)
-      });
-      sendResponse({ success: true });
-      break;
+  if (message.type === 'PAGE_ANALYSIS') {
+    detector.handlePageAnalysis(message, sender);
+  }
+
+  if (message.type === 'GET_ANALYSIS' && sender.tab) {
+    chrome.storage.local
+      .get([`analysis_${sender.tab.id}`])
+      .then(data => sendResponse(data[`analysis_${sender.tab.id}`]));
+    return true;
   }
 });
 
-// Keep service worker alive
+/* -------------------- KEEP ALIVE -------------------- */
+
 chrome.alarms.create('keepAlive', { periodInMinutes: 1 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'keepAlive') {
-    // Just to keep the service worker alive
+chrome.alarms.onAlarm.addListener(() => {});
+const analysisCache = {};
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'PAGE_ANALYSIS') {
+    const tabId = sender.tab.id;
+
+    analysisCache[tabId] = {
+      url: message.url,
+      pageScore: message.score,
+      indicators: message.indicators
+    };
+
+    analyzeFinal(tabId);
   }
+
+  if (message.type === 'GET_ANALYSIS') {
+  const tabId = message.tabId;
+
+  chrome.storage.local.get([`analysis_${tabId}`]).then(data => {
+    sendResponse(data[`analysis_${tabId}`] || null);
+  });
+
+  return true; // REQUIRED
+}
+
 });
+
+function analyzeFinal(tabId) {
+  const pageData = analysisCache[tabId];
+  if (!pageData) return;
+
+  let finalScore = pageData.pageScore;
+
+  // URL-based phishing heuristics
+  if (pageData.url.includes('@')) finalScore += 20;
+  if (pageData.url.startsWith('http://')) finalScore += 10;
+  if (pageData.url.length > 75) finalScore += 10;
+
+  finalScore = Math.min(finalScore, 100);
+
+  let riskLevel = 'SAFE';
+  if (finalScore > 50) riskLevel = 'DANGEROUS';
+  else if (finalScore > 20) riskLevel = 'DOUBTFUL';
+
+  analysisCache[tabId] = {
+    ...pageData,
+    finalScore,
+    riskLevel
+  };
+
+  chrome.storage.local.set({
+    [`analysis_${tabId}`]: analysisCache[tabId]
+  });
+
+  chrome.action.setBadgeText({
+    tabId,
+    text: finalScore > 20 ? '!' : ''
+  });
+
+  chrome.action.setBadgeBackgroundColor({
+    tabId,
+    color:
+      riskLevel === 'DANGEROUS' ? '#ff0000' :
+      riskLevel === 'DOUBTFUL' ? '#ffb300' :
+      '#00c853'
+  });
+}
