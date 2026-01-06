@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Phishing Detector</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚙️ Settings</h1>
+      <nav>
+        <a href="#general">General</a>
+        <a href="#protection">Protection</a>
+        <a href="#privacy">Privacy</a>
+        <a href="#about">About</a>
+      </nav>
+    </header>
+
+    <main>
+      <section id="general" class="settings-section">
+        <h2>General Settings</h2>
+        
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="enableDetection" checked>
+            Enable phishing detection
+          </label>
+          <p class="description">Enable real-time phishing detection on all websites</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="showNotifications" checked>
+            Show notifications
+          </label>
+          <p class="description">Show desktop notifications for high-risk sites</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="autoBlock" checked>
+            Auto-block dangerous sites
+          </label>
+          <p class="description">Automatically block access to confirmed phishing sites</p>
+        </div>
+
+        <div class="setting">
+          <label for="sensitivity">Detection Sensitivity</label>
+          <select id="sensitivity">
+            <option value="low">Low (Fewer warnings)</option>
+            <option value="medium" selected>Medium (Recommended)</option>
+            <option value="high">High (More warnings)</option>
+            <option value="paranoid">Paranoid (Maximum protection)</option>
+          </select>
+          <p class="description">Adjust how sensitive the detection system is</p>
+        </div>
+      </section>
+
+      <section id="protection" class="settings-section">
+        <h2>Protection Settings</h2>
+        
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="scanForms" checked>
+            Scan login forms
+          </label>
+          <p class="description">Analyze login forms for phishing attempts</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="checkUrls" checked>
+            Check URL patterns
+          </label>
+          <p class="description">Analyze URL structure for suspicious patterns</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="analyzeContent" checked>
+            Analyze page content
+          </label>
+          <p class="description">Examine page text for phishing indicators</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="useMachineLearning" checked>
+            Use machine learning
+          </label>
+          <p class="description">Enable AI-powered phishing detection</p>
+        </div>
+      </section>
+
+      <section id="privacy" class="settings-section">
+        <h2>Privacy Settings</h2>
+        
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="anonymousReporting" checked>
+            Anonymous reporting
+          </label>
+          <p class="description">Report phishing sites anonymously to help improve protection</p>
+        </div>
+
+        <div class="setting">
+          <label>
+            <input type="checkbox" id="collectStats" checked>
+            Collect usage statistics
+          </label>
+          <p class="description">Collect anonymous usage data to improve the extension</p>
+        </div>
+
+        <div class="setting">
+          <label for="dataRetention">Data Retention Period</label>
+          <select id="dataRetention">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">1 year</option>
+          </select>
+          <p class="description">How long to keep scan history and logs</p>
+        </div>
+      </section>
+
+      <section id="whitelist" class="settings-section">
+        <h2>Whitelist Management</h2>
+        <div class="whitelist-container">
+          <div class="input-group">
+            <input type="text" id="whitelistInput" placeholder="Enter domain to whitelist (e.g., example.com)">
+            <button id="addWhitelist" class="btn">Add</button>
+          </div>
+          <ul id="whitelistItems" class="domain-list"></ul>
+        </div>
+      </section>
+
+      <section id="blacklist" class="settings-section">
+        <h2>Blocked Sites</h2>
+        <ul id="blacklistItems" class="domain-list"></ul>
+      </section>
+
+      <section id="about" class="settings-section">
+        <h2>About</h2>
+        <div class="about-content">
+          <p><strong>Phishing Detector Pro</strong> v1.0.0</p>
+          <p>Protecting users from phishing attacks since 2024</p>
+          <p>Database last updated: <span id="dbUpdateTime">Loading...</span></p>
+          <p>Sites scanned: <span id="totalSitesScanned">0</span></p>
+          <p>Threats detected: <span id="totalThreatsDetected">0</span></p>
+        </div>
+        
+        <div class="actions">
+          <button id="updateDatabase" class="btn btn-primary">🔄 Update Database</button>
+          <button id="exportData" class="btn btn-secondary">📤 Export Data</button>
+          <button id="resetSettings" class="btn btn-danger">🗑️ Reset Settings</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-content">
+        <p>© 2024 Phishing Detector Pro. All rights reserved.</p>
+        <div class="footer-links">
+          <a href="#">Privacy Policy</a>
+          <a href="#">Terms of Service</a>
+          <a href="#">Contact</a>
+        </div>
+      </div>
+    </footer>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>
